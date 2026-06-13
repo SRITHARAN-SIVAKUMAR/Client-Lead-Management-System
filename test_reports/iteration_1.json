@@ -1,0 +1,40 @@
+{
+  "summary": "First full backend + frontend test of the Lead CRM. All 21 pytest backend tests pass against the external preview URL. All requested frontend flows verified end-to-end: public contact form submission, admin login (success + wrong password), protected route redirect, dashboard stat cards / conversion / by-source / recent table, leads list with search/status/source filters, lead detail (status workflow, notes add/delete via API, follow-up schedule via shadcn calendar popover, clear follow-up), and logout. No critical or blocking bugs found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/leads/{id}", "issue": "Clearing follow_up_at is done by sending empty string \"\". Backend stores the empty string in DB rather than removing the field/setting null. Frontend treats falsy as 'Not set' so UI works, but `LeadUpdate.follow_up_at: Optional[str] = None` filtered with `v is not None` means there is no clean way to actually clear (set to null). Consider using a sentinel or accepting null and storing None."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Toaster", "issues": ["Sonner toasts at top-right overlap the 'Sign out' button in the admin header, occasionally blocking clicks immediately after status/follow-up updates. Consider relocating toaster or shortening duration."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Allow null/clear for follow_up_at in PATCH /api/leads/{id} instead of storing an empty string.",
+    "(Optional) Move Sonner toaster position (e.g., bottom-right) so it does not overlap the header sign-out button.",
+    "(Optional) Hydration console warning from Emergent dev wrapper inserting <span> inside <option> in LeadsList — appears to come from the dev runtime, not source, but verify in production build."
+  ],
+  "critical_code_review_comments": [
+    "Backend: /api/leads/{id} update accepts empty string as a value, leading to ambiguous semantics for clearing follow_up_at.",
+    "Backend: lead_stats follow-up window uses ISO date string comparison which works only because follow_up_at is yyyy-MM-dd; document this invariant.",
+    "Frontend: LeadsList renders <option> labels via Babel transform that inserts a <span>, raising a React hydration warning. Likely tooling, but worth verifying with production build."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% of requested flows"},
+  "test_credentials": "admin@crm.local / Admin@12345 (verified working, seeded on startup)",
+  "seed_data_creation": "Multiple TEST_ prefixed leads were created via the public endpoint during testing. They remain in MongoDB for further manual verification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pytest suite at /app/backend/tests/backend_test.py covers auth, public leads, lead CRUD, stats, notes, delete, and logout — keep as regression suite. Frontend E2E used data-testids exactly as documented in the request. The shadcn calendar inside Popover renders day buttons inside [role='dialog'] with role='gridcell' — use that selector to click days. Avoid using [data-testid^=\"note-\"] because it also matches the note-input textarea; instead scope by li[data-testid^=\"note-\"] or use the exact uuid.",
+  "rca of the issue": "N/A — no functional bugs were found. Only one ambiguity in follow-up clearing semantics noted as minor."
+}

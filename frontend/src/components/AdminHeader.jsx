@@ -1,0 +1,80 @@
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { SignOut, ChartBar, UsersThree } from "@phosphor-icons/react";
+import { useAuth } from "@/context/AuthContext";
+
+export default function AdminHeader() {
+  const { user, logout } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/admin/login");
+  };
+
+  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + "/");
+
+  return (
+    <header
+      data-testid="admin-header"
+      className="sticky top-0 z-40 bg-white border-b border-black/10 backdrop-blur-xl"
+    >
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
+        <div className="flex items-center gap-10">
+          <Link
+            to="/admin"
+            data-testid="admin-logo"
+            className="font-display font-black text-xl tracking-tighter text-[#030712]"
+          >
+            LEDGER<span className="text-[#002FA7]">.</span>CRM
+          </Link>
+          <nav className="hidden md:flex items-center gap-1">
+            <Link
+              to="/admin"
+              data-testid="nav-dashboard"
+              className={`label-eyebrow px-3 py-2 inline-flex items-center gap-2 transition-colors ${
+                isActive("/admin") && !isActive("/admin/leads") && location.pathname === "/admin"
+                  ? "text-[#002FA7]"
+                  : "text-neutral-500 hover:text-[#030712]"
+              }`}
+            >
+              <ChartBar size={14} weight="bold" />
+              Dashboard
+            </Link>
+            <Link
+              to="/admin/leads"
+              data-testid="nav-leads"
+              className={`label-eyebrow px-3 py-2 inline-flex items-center gap-2 transition-colors ${
+                isActive("/admin/leads") ? "text-[#002FA7]" : "text-neutral-500 hover:text-[#030712]"
+              }`}
+            >
+              <UsersThree size={14} weight="bold" />
+              Leads
+            </Link>
+          </nav>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="hidden sm:flex flex-col items-end">
+            <span className="label-eyebrow text-neutral-400">Signed in</span>
+            <span
+              data-testid="header-user-email"
+              className="text-sm font-medium text-[#030712]"
+            >
+              {user?.email}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            data-testid="logout-button"
+            className="btn-ghost inline-flex items-center gap-2 text-sm"
+          >
+            <SignOut size={16} weight="bold" />
+            Sign out
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
