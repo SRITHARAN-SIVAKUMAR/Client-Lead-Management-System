@@ -1,0 +1,91 @@
+{
+  "theme": "light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "emotional_tone": "Authority, Clarity, Truth, Function-first",
+  "colors": {
+    "background": "#F9FAFB",
+    "surface": "#FFFFFF",
+    "surface_glass": "rgba(255, 255, 255, 0.8)",
+    "primary": "#002FA7",
+    "primary_hover": "#002277",
+    "text_main": "#030712",
+    "text_muted": "#4B5563",
+    "border": "rgba(0, 0, 0, 0.08)",
+    "status": {
+      "new": "#2563EB",
+      "contacted": "#F59E0B",
+      "converted": "#10B981",
+      "error": "#EF4444"
+    }
+  },
+  "typography": {
+    "heading_font": "Cabinet Grotesk, sans-serif",
+    "body_font": "IBM Plex Sans, sans-serif",
+    "import_urls": [
+      "https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@100,200,300,400,500,700,800,900&display=swap",
+      "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap"
+    ],
+    "scales": {
+      "h1": "text-5xl sm:text-6xl tracking-tighter font-black",
+      "h2": "text-3xl sm:text-4xl tracking-tight font-bold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-semibold",
+      "h4": "text-lg font-medium",
+      "body": "text-base leading-relaxed",
+      "small_label": "text-xs tracking-[0.2em] uppercase font-bold"
+    }
+  },
+  "layout_and_spacing": {
+    "general": "Generous Spacing Philosophy (p-6, p-8, p-12) for landing page. Dense, strict grid hierarchy for CRM dashboard.",
+    "landing_page_grid": "MODE A: The 'Tetris' Grid. Asymmetry, Visual Tension. grid-cols-1 md:grid-cols-12 gap-8.",
+    "dashboard_grid": "MODE B: The 'Control Room' Grid. Dense, compact. grid-cols-1 md:grid-cols-4 gap-4.",
+    "corners": "Sharp to minimal roundness (rounded-none to rounded-sm) to emphasize Brutalist/Swiss precision."
+  },
+  "component_rules": {
+    "buttons": "Flat, sharp edges, pure primary color or high-contrast black/white. Explicit hover states.",
+    "cards": "Flat background, 1px subtle border, NO default shadow. Slight lift (-translate-y-1) and shadow-lg on hover for interactive cards.",
+    "forms": "Use customized Shadcn UI with sharp borders. No rounded-full pill shapes. Solid focus rings.",
+    "tables": "High-contrast tables. Clear labels, dense typography. 1px row borders.",
+    "headers": "Landing: Crystal Glass (backdrop-blur-xl bg-white/80 border-b border-black/5). Admin: Solid white with 1px bottom border."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Regular or bold weight, sharp geometric styles preferred."
+  },
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1672152567948-0d3d10da0039?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBtaW5pbWFsaXN0JTIwb2ZmaWNlJTIwYnVpbGRpbmd8ZW58MHx8fHwxNzgxMzYxNDY4fDA&ixlib=rb-4.1.0&q=85",
+      "category": "hero_background",
+      "description": "Modern minimalist office building for the landing page hero section."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1624555130581-1d9cca783bc0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjB0ZWFtJTIwZGlzY3Vzc2lvbnxlbnwwfHx8fDE3ODEzNjE0NTd8MA&ixlib=rb-4.1.0&q=85",
+      "category": "social_proof_team",
+      "description": "Professional team working, for the About or Social Proof section of the public page."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1483959651481-dc75b89291f1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGdlb21ldHJpYyUyMG1lc2h8ZW58MHx8fHwxNzgxMzYxNDY4fDA&ixlib=rb-4.1.0&q=85",
+      "category": "abstract_decoration",
+      "description": "Abstract geometric mesh for section backgrounds or feature highlights."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTM2MTQ2N3ww&ixlib=rb-4.1.0&q=85",
+      "category": "user_avatar",
+      "description": "Avatar placeholder for the admin user profile or testimonial."
+    }
+  ],
+  "accessibility_and_testing": {
+    "contrast": "Ensure minimum 4.5:1 for normal text and 3:1 for large text. Use tinted grey instead of pure #808080.",
+    "testing_attributes": "All interactive elements MUST include data-testid attributes (e.g. data-testid='submit-lead-button')."
+  },
+  "instructions_to_main_agent": [
+    "The project uses Javascript (.js/.jsx) files. Do not generate TypeScript (.ts/.tsx) files.",
+    "Use standard HTML + Tailwind for creative marketing layouts (Landing Page). Do not use Shadcn 'Card' for purely structural marketing sections.",
+    "Use Shadcn heavily customized (sharp corners, strict borders) for the CRM Admin Dashboard, Tables, Forms, Selects, and Dialogs.",
+    "Ensure dark text on light backgrounds for maximum authority and readability.",
+    "Implement the Lead status workflow using functional color-coding: Blue (New), Yellow (Contacted), Green (Converted). No decorative use of these colors.",
+    "Add hover animations to all interactive elements, e.g., explicit text color changes and subtle layout lifts.",
+    "For the navigation header, use 'Crystal Glass' effect if content scrolls beneath it.",
+    "Adhere to the 'Anti-Default Rule' for fonts. Import Cabinet Grotesk for headings and IBM Plex Sans for body text.",
+    "Install and use @phosphor-icons/react for all iconography."
+  ]
+}
