@@ -10,6 +10,8 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import LeadsList from "@/pages/LeadsList";
 import LeadDetail from "@/pages/LeadDetail";
+import UsersAdmin from "@/pages/UsersAdmin";
+import AuditPage from "@/pages/AuditPage";
 
 function App() {
   return (
@@ -40,6 +42,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <LeadDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <ProtectedRoute requireAdmin>
+                  <UsersAdmin />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/audit"
+              element={
+                <ProtectedRoute requireAdmin>
+                  <AuditPage />
                 </ProtectedRoute>
               }
             />

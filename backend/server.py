@@ -5,6 +5,8 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import io
+import csv
 import uuid
 import logging
 import secrets
@@ -14,6 +16,7 @@ from typing import List, Optional, Literal
 import bcrypt
 import jwt
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
@@ -67,6 +70,22 @@ class NoteCreate(BaseModel):
 class LoginPayload(BaseModel):
     email: str
     password: str
+
+
+UserRole = Literal["admin", "agent"]
+
+
+class UserCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    password: str = Field(min_length=6, max_length=120)
+    name: str = Field(min_length=1, max_length=120)
+    role: UserRole = "agent"
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    role: Optional[UserRole] = None
+    password: Optional[str] = Field(default=None, min_length=6, max_length=120)
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +147,39 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def require_admin(user=Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Audit log helper
+# ---------------------------------------------------------------------------
+async def log_audit(
+    action: str,
+    *,
+    actor_email: str = "system",
+    actor_id: Optional[str] = None,
+    lead_id: Optional[str] = None,
+    target_id: Optional[str] = None,
+    summary: str = "",
+    meta: Optional[dict] = None,
+) -> None:
+    entry = {
+        "id": str(uuid.uuid4()),
+        "action": action,
+        "actor_email": actor_email,
+        "actor_id": actor_id,
+        "lead_id": lead_id,
+        "target_id": target_id,
+        "summary": summary,
+        "meta": meta or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.audit_logs.insert_one(entry)
+
+
 # ---------------------------------------------------------------------------
 # Auth endpoints
 # ---------------------------------------------------------------------------
@@ -182,6 +234,15 @@ async def create_public_lead(payload: LeadCreate):
     }
     await db.leads.insert_one(lead)
     lead.pop("_id", None)
+    await log_audit(
+        "lead.created",
+        actor_email="public",
+        lead_id=lead["id"],
+        summary=f"New lead from {lead['source']}: {lead['name']} <{lead['email']}>",
+    )
+    # Email notification stub (enabled when SENDGRID_API_KEY is set)
+    if os.environ.get("SENDGRID_API_KEY"):
+        logger.info(f"[stub] would send SendGrid notification for new lead {lead['id']}")
     return {"ok": True, "lead": lead}
 
 
@@ -232,6 +293,62 @@ async def lead_stats(_user=Depends(get_current_user)):
     return {"total": total, "counts": counts, "upcoming_follow_ups": upcoming, "by_source": by_source}
 
 
+@api_router.get("/leads/export.csv")
+async def export_leads_csv(
+    status: Optional[str] = None,
+    source: Optional[str] = None,
+    q: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    query: dict = {}
+    if status and status != "all":
+        query["status"] = status
+    if source and source != "all":
+        query["source"] = source
+    if q:
+        query["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+            {"phone": {"$regex": q, "$options": "i"}},
+        ]
+    leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(5000)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["id", "name", "email", "phone", "source", "status", "follow_up_at",
+                     "notes_count", "created_at", "updated_at", "message"])
+    for lead in leads:
+        writer.writerow([
+            lead.get("id", ""),
+            lead.get("name", ""),
+            lead.get("email", ""),
+            lead.get("phone", ""),
+            lead.get("source", ""),
+            lead.get("status", ""),
+            lead.get("follow_up_at") or "",
+            len(lead.get("notes", []) or []),
+            lead.get("created_at", ""),
+            lead.get("updated_at", ""),
+            (lead.get("message") or "").replace("\n", " "),
+        ])
+
+    await log_audit(
+        "leads.exported",
+        actor_email=user.get("email", "admin"),
+        actor_id=user.get("id"),
+        summary=f"Exported {len(leads)} lead(s) to CSV",
+        meta={"filters": {"status": status, "source": source, "q": q}, "count": len(leads)},
+    )
+
+    buffer.seek(0)
+    filename = f"leads-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @api_router.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, _user=Depends(get_current_user)):
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
@@ -241,23 +358,56 @@ async def get_lead(lead_id: str, _user=Depends(get_current_user)):
 
 
 @api_router.patch("/leads/{lead_id}")
-async def update_lead(lead_id: str, payload: LeadUpdate, _user=Depends(get_current_user)):
+async def update_lead(lead_id: str, payload: LeadUpdate, user=Depends(get_current_user)):
+    existing = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No updates provided")
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-    result = await db.leads.update_one({"id": lead_id}, {"$set": updates})
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    await db.leads.update_one({"id": lead_id}, {"$set": updates})
+
+    actor = user.get("email", "admin")
+    if "status" in updates and updates["status"] != existing.get("status"):
+        await log_audit(
+            "lead.status_changed",
+            actor_email=actor,
+            actor_id=user.get("id"),
+            lead_id=lead_id,
+            summary=f"Status changed from {existing.get('status')} to {updates['status']}",
+            meta={"from": existing.get("status"), "to": updates["status"]},
+        )
+    if "follow_up_at" in updates and updates["follow_up_at"] != existing.get("follow_up_at"):
+        new_value = updates["follow_up_at"] or None
+        await log_audit(
+            "lead.followup_set" if new_value else "lead.followup_cleared",
+            actor_email=actor,
+            actor_id=user.get("id"),
+            lead_id=lead_id,
+            summary=(f"Follow-up scheduled for {new_value}" if new_value else "Follow-up cleared"),
+            meta={"from": existing.get("follow_up_at"), "to": new_value},
+        )
+
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     return lead
 
 
 @api_router.delete("/leads/{lead_id}")
-async def delete_lead(lead_id: str, _user=Depends(get_current_user)):
-    result = await db.leads.delete_one({"id": lead_id})
-    if result.deleted_count == 0:
+async def delete_lead(lead_id: str, user=Depends(require_admin)):
+    existing = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not existing:
         raise HTTPException(status_code=404, detail="Lead not found")
+    await db.leads.delete_one({"id": lead_id})
+    await log_audit(
+        "lead.deleted",
+        actor_email=user.get("email", "admin"),
+        actor_id=user.get("id"),
+        lead_id=lead_id,
+        summary=f"Lead deleted: {existing.get('name')} <{existing.get('email')}>",
+        meta={"snapshot": {k: existing.get(k) for k in ("name", "email", "phone", "source", "status")}},
+    )
     return {"ok": True}
 
 
@@ -275,18 +425,146 @@ async def add_note(lead_id: str, payload: NoteCreate, user=Depends(get_current_u
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
+    await log_audit(
+        "lead.note_added",
+        actor_email=user.get("email", "admin"),
+        actor_id=user.get("id"),
+        lead_id=lead_id,
+        target_id=note["id"],
+        summary=f"Note added: {note['text'][:80]}",
+    )
     return note
 
 
 @api_router.delete("/leads/{lead_id}/notes/{note_id}")
-async def delete_note(lead_id: str, note_id: str, _user=Depends(get_current_user)):
+async def delete_note(lead_id: str, note_id: str, user=Depends(get_current_user)):
     result = await db.leads.update_one(
         {"id": lead_id},
         {"$pull": {"notes": {"id": note_id}}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
+    await log_audit(
+        "lead.note_deleted",
+        actor_email=user.get("email", "admin"),
+        actor_id=user.get("id"),
+        lead_id=lead_id,
+        target_id=note_id,
+        summary="Note deleted",
+    )
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Audit log endpoints
+# ---------------------------------------------------------------------------
+@api_router.get("/audit")
+async def list_audit(limit: int = 100, _user=Depends(require_admin)):
+    limit = max(1, min(500, limit))
+    rows = await db.audit_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return rows
+
+
+@api_router.get("/leads/{lead_id}/audit")
+async def lead_audit(lead_id: str, _user=Depends(get_current_user)):
+    rows = await db.audit_logs.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# User management (admin only)
+# ---------------------------------------------------------------------------
+@api_router.get("/users")
+async def list_users(_admin=Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", 1).to_list(500)
+    return users
+
+
+@api_router.post("/users")
+async def create_user(payload: UserCreate, admin=Depends(require_admin)):
+    email = payload.email.lower()
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=409, detail="A user with that email already exists")
+    user_doc = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "name": payload.name.strip(),
+        "role": payload.role,
+        "password_hash": hash_password(payload.password),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(user_doc)
+    await log_audit(
+        "user.created",
+        actor_email=admin.get("email", "admin"),
+        actor_id=admin.get("id"),
+        target_id=user_doc["id"],
+        summary=f"User created: {email} ({payload.role})",
+    )
+    user_doc.pop("password_hash", None)
+    user_doc.pop("_id", None)
+    return user_doc
+
+
+@api_router.patch("/users/{user_id}")
+async def update_user(user_id: str, payload: UserUpdate, admin=Depends(require_admin)):
+    existing = await db.users.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    updates = {}
+    if payload.name is not None:
+        updates["name"] = payload.name.strip()
+    if payload.role is not None:
+        # Prevent demoting the last remaining admin
+        if existing.get("role") == "admin" and payload.role != "admin":
+            other_admins = await db.users.count_documents({"role": "admin", "id": {"$ne": user_id}})
+            if other_admins == 0:
+                raise HTTPException(status_code=400, detail="Cannot demote the last admin")
+        updates["role"] = payload.role
+    if payload.password is not None:
+        updates["password_hash"] = hash_password(payload.password)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates provided")
+
+    await db.users.update_one({"id": user_id}, {"$set": updates})
+    await log_audit(
+        "user.updated",
+        actor_email=admin.get("email", "admin"),
+        actor_id=admin.get("id"),
+        target_id=user_id,
+        summary=f"User updated: {existing['email']} ({', '.join(updates.keys())})",
+    )
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return user
+
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, admin=Depends(require_admin)):
+    if user_id == admin.get("id"):
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    existing = await db.users.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    if existing.get("role") == "admin":
+        other_admins = await db.users.count_documents({"role": "admin", "id": {"$ne": user_id}})
+        if other_admins == 0:
+            raise HTTPException(status_code=400, detail="Cannot delete the last admin")
+    await db.users.delete_one({"id": user_id})
+    await log_audit(
+        "user.deleted",
+        actor_email=admin.get("email", "admin"),
+        actor_id=admin.get("id"),
+        target_id=user_id,
+        summary=f"User deleted: {existing['email']}",
+    )
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# CSV export (must come BEFORE /leads/{lead_id} to avoid route capture)
+# ---------------------------------------------------------------------------
 
 
 @api_router.get("/health")
@@ -327,6 +605,8 @@ async def on_startup():
     await db.leads.create_index("status")
     await db.leads.create_index("source")
     await db.leads.create_index("created_at")
+    await db.audit_logs.create_index("created_at")
+    await db.audit_logs.create_index("lead_id")
     await seed_admin()
 
 

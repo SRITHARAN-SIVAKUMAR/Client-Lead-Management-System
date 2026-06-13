@@ -10,18 +10,24 @@ import {
 import { format, parseISO } from "date-fns";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import AdminHeader from "@/components/AdminHeader";
+import AuditTimeline from "@/components/AuditTimeline";
 import { StatusPill, STATUS_META } from "@/components/StatusPill";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 
 export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
+  const [tab, setTab] = useState("notes");
+  const [auditNonce, setAuditNonce] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +48,7 @@ export default function LeadDetail() {
     try {
       const { data } = await api.patch(`/leads/${id}`, { status });
       setLead(data);
+      setAuditNonce((n) => n + 1);
       toast.success(`Status set to ${STATUS_META[status].label}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Update failed");
@@ -54,6 +61,7 @@ export default function LeadDetail() {
     try {
       const { data } = await api.patch(`/leads/${id}`, { follow_up_at: iso });
       setLead(data);
+      setAuditNonce((n) => n + 1);
       toast.success(`Follow-up set for ${iso}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Update failed");
@@ -62,10 +70,9 @@ export default function LeadDetail() {
 
   const clearFollowUp = async () => {
     try {
-      // Use empty string sentinel via PATCH won't work since None filtered — use special endpoint trick: set to empty space
-      // Simpler: send a request with explicit null via direct axios bypass
       const res = await api.patch(`/leads/${id}`, { follow_up_at: "" });
       setLead(res.data);
+      setAuditNonce((n) => n + 1);
       toast.success("Follow-up cleared");
     } catch (e) {
       toast.error("Could not clear follow-up");
@@ -80,6 +87,7 @@ export default function LeadDetail() {
       await api.post(`/leads/${id}/notes`, { text: noteText.trim() });
       setNoteText("");
       await load();
+      setAuditNonce((n) => n + 1);
       toast.success("Note added");
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Failed to add note");
@@ -92,6 +100,7 @@ export default function LeadDetail() {
     try {
       await api.delete(`/leads/${id}/notes/${noteId}`);
       await load();
+      setAuditNonce((n) => n + 1);
     } catch {
       toast.error("Failed to delete note");
     }
@@ -165,14 +174,16 @@ export default function LeadDetail() {
               <span>· {lead.source}</span>
             </div>
           </div>
-          <button
-            onClick={handleDeleteLead}
-            data-testid="delete-lead-button"
-            className="inline-flex items-center gap-2 px-3 py-2 border border-red-200 text-red-700 hover:bg-red-50 transition-colors text-sm"
-          >
-            <Trash size={16} weight="bold" />
-            Delete lead
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleDeleteLead}
+              data-testid="delete-lead-button"
+              className="inline-flex items-center gap-2 px-3 py-2 border border-red-200 text-red-700 hover:bg-red-50 transition-colors text-sm"
+            >
+              <Trash size={16} weight="bold" />
+              Delete lead
+            </button>
+          )}
         </div>
 
         <div className="grid lg:grid-cols-12 gap-6 mt-10">
@@ -276,76 +287,104 @@ export default function LeadDetail() {
             </div>
           </div>
 
-          {/* RIGHT: notes timeline */}
+          {/* RIGHT: notes / activity tabs */}
           <div className="lg:col-span-7">
             <div className="bg-white border border-black/10">
-              <div className="flex items-center justify-between p-6 border-b border-black/10">
-                <div className="flex items-center gap-2">
-                  <ChatCircle size={18} weight="bold" className="text-[#002FA7]" />
-                  <h2 className="font-display text-2xl font-bold">Notes & follow-ups</h2>
-                </div>
-                <span className="label-eyebrow text-neutral-500">
-                  {notes.length} {notes.length === 1 ? "entry" : "entries"}
-                </span>
-              </div>
-
-              <form onSubmit={handleAddNote} className="p-6 border-b border-black/10">
-                <textarea
-                  data-testid="note-input"
-                  rows={3}
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="Log a call, paste an email, or note next steps…"
-                  className="w-full px-4 py-3 bg-[#F9FAFB] border border-black/10 focus:border-[#002FA7] focus:outline-none focus:ring-2 focus:ring-[#002FA7]/20 transition-all text-sm resize-none"
-                />
-                <div className="flex justify-end mt-3">
+              <div className="flex items-center justify-between border-b border-black/10">
+                <div className="flex">
                   <button
-                    type="submit"
-                    disabled={savingNote || !noteText.trim()}
-                    data-testid="add-note-button"
-                    className="btn-primary inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                    type="button"
+                    onClick={() => setTab("notes")}
+                    data-testid="tab-notes"
+                    className={`px-6 py-5 label-eyebrow border-b-2 transition-colors ${
+                      tab === "notes"
+                        ? "text-[#002FA7] border-[#002FA7]"
+                        : "text-neutral-500 border-transparent hover:text-[#030712]"
+                    }`}
                   >
-                    <PaperPlaneTilt size={16} weight="bold" />
-                    {savingNote ? "Saving…" : "Add note"}
+                    Notes ({notes.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab("activity")}
+                    data-testid="tab-activity"
+                    className={`px-6 py-5 label-eyebrow border-b-2 transition-colors ${
+                      tab === "activity"
+                        ? "text-[#002FA7] border-[#002FA7]"
+                        : "text-neutral-500 border-transparent hover:text-[#030712]"
+                    }`}
+                  >
+                    Activity
                   </button>
                 </div>
-              </form>
+                <ChatCircle size={18} weight="bold" className="text-[#002FA7] mr-6" />
+              </div>
 
-              <ul className="divide-y divide-black/5">
-                {notes.length === 0 && (
-                  <li className="p-8 text-center text-neutral-500 text-sm">
-                    No notes yet. Add the first one above.
-                  </li>
-                )}
-                {notes.map((n) => (
-                  <li
-                    key={n.id}
-                    data-testid={`note-${n.id}`}
-                    className="p-6 flex gap-4 group"
-                  >
-                    <div className="w-1 self-stretch bg-[#002FA7]/30" />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="label-eyebrow text-[#002FA7]">{n.author}</span>
-                        <span className="font-mono-ibm text-xs text-neutral-400">
-                          {new Date(n.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-neutral-800 leading-relaxed whitespace-pre-wrap">
-                        {n.text}
-                      </p>
+              {tab === "notes" && (
+                <>
+                  <form onSubmit={handleAddNote} className="p-6 border-b border-black/10">
+                    <textarea
+                      data-testid="note-input"
+                      rows={3}
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      placeholder="Log a call, paste an email, or note next steps…"
+                      className="w-full px-4 py-3 bg-[#F9FAFB] border border-black/10 focus:border-[#002FA7] focus:outline-none focus:ring-2 focus:ring-[#002FA7]/20 transition-all text-sm resize-none"
+                    />
+                    <div className="flex justify-end mt-3">
+                      <button
+                        type="submit"
+                        disabled={savingNote || !noteText.trim()}
+                        data-testid="add-note-button"
+                        className="btn-primary inline-flex items-center gap-2 text-sm disabled:opacity-50"
+                      >
+                        <PaperPlaneTilt size={16} weight="bold" />
+                        {savingNote ? "Saving…" : "Add note"}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleDeleteNote(n.id)}
-                      data-testid={`delete-note-${n.id}`}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-neutral-400 hover:text-red-600 self-start"
-                      aria-label="Delete note"
-                    >
-                      <Trash size={16} weight="bold" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                  </form>
+
+                  <ul className="divide-y divide-black/5">
+                    {notes.length === 0 && (
+                      <li className="p-8 text-center text-neutral-500 text-sm">
+                        No notes yet. Add the first one above.
+                      </li>
+                    )}
+                    {notes.map((n) => (
+                      <li
+                        key={n.id}
+                        data-testid={`note-${n.id}`}
+                        className="p-6 flex gap-4 group"
+                      >
+                        <div className="w-1 self-stretch bg-[#002FA7]/30" />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="label-eyebrow text-[#002FA7]">{n.author}</span>
+                            <span className="font-mono-ibm text-xs text-neutral-400">
+                              {new Date(n.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-neutral-800 leading-relaxed whitespace-pre-wrap">
+                            {n.text}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteNote(n.id)}
+                          data-testid={`delete-note-${n.id}`}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-neutral-400 hover:text-red-600 self-start"
+                          aria-label="Delete note"
+                        >
+                          <Trash size={16} weight="bold" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {tab === "activity" && (
+                <AuditTimeline key={auditNonce} leadId={id} />
+              )}
             </div>
           </div>
         </div>

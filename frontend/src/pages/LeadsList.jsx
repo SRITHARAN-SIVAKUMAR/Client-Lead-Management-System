@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { MagnifyingGlass, FunnelSimple } from "@phosphor-icons/react";
-import api from "@/lib/api";
+import { MagnifyingGlass, FunnelSimple, DownloadSimple } from "@phosphor-icons/react";
+import api, { API_BASE } from "@/lib/api";
 import AdminHeader from "@/components/AdminHeader";
 import { StatusPill, STATUS_META } from "@/components/StatusPill";
 
@@ -38,6 +38,30 @@ export default function LeadsList() {
 
   const grouped = useMemo(() => leads, [leads]);
 
+  const buildExportUrl = () => {
+    const params = new URLSearchParams();
+    if (status !== "all") params.set("status", status);
+    if (source !== "all") params.set("source", source);
+    if (q.trim()) params.set("q", q.trim());
+    const qs = params.toString();
+    return `${API_BASE}/leads/export.csv${qs ? `?${qs}` : ""}`;
+  };
+
+  const handleExport = async () => {
+    // Use fetch with credentials so the auth cookie is included on cross-origin download
+    const res = await fetch(buildExportUrl(), { credentials: "include" });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-[#F9FAFB]" data-testid="leads-page">
       <AdminHeader />
@@ -49,6 +73,15 @@ export default function LeadsList() {
               {leads.length} {leads.length === 1 ? "lead" : "leads"}
             </h1>
           </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            data-testid="export-csv-button"
+            className="btn-ghost inline-flex items-center gap-2 text-sm"
+          >
+            <DownloadSimple size={16} weight="bold" />
+            Export CSV
+          </button>
         </div>
 
         {/* Filters */}

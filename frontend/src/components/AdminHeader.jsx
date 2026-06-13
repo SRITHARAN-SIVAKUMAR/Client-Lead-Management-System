@@ -1,18 +1,20 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { SignOut, ChartBar, UsersThree } from "@phosphor-icons/react";
+import { SignOut, ChartBar, UsersThree, ShieldCheck, ClockClockwise } from "@phosphor-icons/react";
 import { useAuth } from "@/context/AuthContext";
 
 export default function AdminHeader() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const isAdmin = user?.role === "admin";
 
   const handleLogout = async () => {
     await logout();
     navigate("/admin/login");
   };
 
-  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + "/");
+  const isActive = (path, exact = false) =>
+    exact ? location.pathname === path : location.pathname.startsWith(path);
 
   return (
     <header
@@ -29,34 +31,22 @@ export default function AdminHeader() {
             LEDGER<span className="text-[#002FA7]">.</span>CRM
           </Link>
           <nav className="hidden md:flex items-center gap-1">
-            <Link
-              to="/admin"
-              data-testid="nav-dashboard"
-              className={`label-eyebrow px-3 py-2 inline-flex items-center gap-2 transition-colors ${
-                isActive("/admin") && !isActive("/admin/leads") && location.pathname === "/admin"
-                  ? "text-[#002FA7]"
-                  : "text-neutral-500 hover:text-[#030712]"
-              }`}
-            >
-              <ChartBar size={14} weight="bold" />
-              Dashboard
-            </Link>
-            <Link
-              to="/admin/leads"
-              data-testid="nav-leads"
-              className={`label-eyebrow px-3 py-2 inline-flex items-center gap-2 transition-colors ${
-                isActive("/admin/leads") ? "text-[#002FA7]" : "text-neutral-500 hover:text-[#030712]"
-              }`}
-            >
-              <UsersThree size={14} weight="bold" />
-              Leads
-            </Link>
+            <NavLink to="/admin" exact label="Dashboard" icon={ChartBar} isActive={isActive} testid="nav-dashboard" />
+            <NavLink to="/admin/leads" label="Leads" icon={UsersThree} isActive={isActive} testid="nav-leads" />
+            {isAdmin && (
+              <>
+                <NavLink to="/admin/users" label="Team" icon={ShieldCheck} isActive={isActive} testid="nav-users" />
+                <NavLink to="/admin/audit" label="Audit" icon={ClockClockwise} isActive={isActive} testid="nav-audit" />
+              </>
+            )}
           </nav>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="hidden sm:flex flex-col items-end">
-            <span className="label-eyebrow text-neutral-400">Signed in</span>
+            <span className="label-eyebrow text-neutral-400">
+              {user?.role === "admin" ? "Admin" : "Agent"}
+            </span>
             <span
               data-testid="header-user-email"
               className="text-sm font-medium text-[#030712]"
@@ -78,3 +68,20 @@ export default function AdminHeader() {
     </header>
   );
 }
+
+function NavLink({ to, exact, label, icon: Icon, isActive, testid }) {
+  const active = exact ? isActive(to, true) : isActive(to);
+  return (
+    <Link
+      to={to}
+      data-testid={testid}
+      className={`label-eyebrow px-3 py-2 inline-flex items-center gap-2 transition-colors ${
+        active ? "text-[#002FA7]" : "text-neutral-500 hover:text-[#030712]"
+      }`}
+    >
+      <Icon size={14} weight="bold" />
+      {label}
+    </Link>
+  );
+}
+
